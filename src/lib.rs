@@ -72,7 +72,7 @@ where
     pub window_size: usize,
     pub step_size: usize,
     pub fft: Arc<dyn FFT<T>>,
-    pub window: Option<Vec<T>>,
+    pub window: Vec<T>,
     pub sample_ring: SliceRingImpl<T>,
     pub real_input: Vec<T>,
     pub complex_input: Vec<Complex<T>>,
@@ -85,7 +85,7 @@ where
 {
     pub fn new(window_type: WindowType, window_size: usize, step_size: usize) -> Self {
         let window = Self::window_type_to_window_vec(window_type, window_size);
-        Self::new_with_window_vec(window, window_size, step_size)
+        Self::with_window_vec(window, window_size, step_size)
     }
 
     pub fn output_size(&self) -> usize {
@@ -153,7 +153,7 @@ where
     }
 
     // TODO this should ideally take an iterator and not a vec
-    fn new_with_window_vec(window: Option<Vec<T>>, window_size: usize, step_size: usize) -> Self {
+    fn with_window_vec(window: Vec<T>, window_size: usize, step_size: usize) -> Self {
         // TODO more assertions:
         // window_size is power of two
         // step_size > 0
@@ -176,29 +176,21 @@ where
         }
     }
 
-    fn window_type_to_window_vec(window_type: WindowType, window_size: usize) -> Option<Vec<T>> {
+    fn window_type_to_window_vec(window_type: WindowType, window_size: usize) -> Vec<T> {
         match window_type {
-            WindowType::Hanning => Some(
-                apodize::hanning_iter(window_size)
-                    .map(FromF64::from_f64)
-                    .collect(),
-            ),
-            WindowType::Hamming => Some(
-                apodize::hamming_iter(window_size)
-                    .map(FromF64::from_f64)
-                    .collect(),
-            ),
-            WindowType::Blackman => Some(
-                apodize::blackman_iter(window_size)
-                    .map(FromF64::from_f64)
-                    .collect(),
-            ),
-            WindowType::Nuttall => Some(
-                apodize::nuttall_iter(window_size)
-                    .map(FromF64::from_f64)
-                    .collect(),
-            ),
-            WindowType::None => None,
+            WindowType::Hanning => apodize::hanning_iter(window_size)
+                .map(FromF64::from_f64)
+                .collect(),
+            WindowType::Hamming => apodize::hamming_iter(window_size)
+                .map(FromF64::from_f64)
+                .collect(),
+            WindowType::Blackman => apodize::blackman_iter(window_size)
+                .map(FromF64::from_f64)
+                .collect(),
+            WindowType::Nuttall => apodize::nuttall_iter(window_size)
+                .map(FromF64::from_f64)
+                .collect(),
+            WindowType::None => vec![],
         }
     }
 
@@ -209,10 +201,8 @@ where
         self.sample_ring.read_many_front(&mut self.real_input[..]);
 
         // Multiply real_input with window
-        if let Some(ref window) = self.window {
-            for (dst, src) in self.real_input.iter_mut().zip(window.iter()) {
-                *dst = *dst * *src;
-            }
+        for (dst, src) in self.real_input.iter_mut().zip(self.window.iter()) {
+            *dst = *dst * *src;
         }
 
         // Copy windowed real_input as real parts into complex_input
