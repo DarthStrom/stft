@@ -72,7 +72,7 @@ extern crate strider;
 use strider::{SliceRing, SliceRingImpl};
 
 extern crate rustfft;
-use rustfft::{FFT,FFTnum,FFTplanner};
+use rustfft::{FFTnum, FFTplanner, FFT};
 
 /// returns `0` if `log10(value).is_negative()`.
 /// otherwise returns `log10(value)`.
@@ -129,11 +129,13 @@ impl std::fmt::Display for WindowType {
 }
 
 // TODO write a macro that does this automatically for any enum
-static WINDOW_TYPES: [WindowType; 5] = [WindowType::Hanning,
-                                        WindowType::Hamming,
-                                        WindowType::Blackman,
-                                        WindowType::Nuttall,
-                                        WindowType::None];
+static WINDOW_TYPES: [WindowType; 5] = [
+    WindowType::Hanning,
+    WindowType::Hamming,
+    WindowType::Blackman,
+    WindowType::Nuttall,
+    WindowType::None,
+];
 
 impl WindowType {
     pub fn values() -> [WindowType; 5] {
@@ -142,11 +144,12 @@ impl WindowType {
 }
 
 pub struct STFT<T>
-    where T: FFTnum + FromF64 + num::Float
+where
+    T: FFTnum + FromF64 + num::Float,
 {
     pub window_size: usize,
     pub step_size: usize,
-    pub fft: Arc<FFT<T>>,
+    pub fft: Arc<dyn FFT<T>>,
     pub window: Option<Vec<T>>,
     /// internal ringbuffer used to store samples
     pub sample_ring: SliceRingImpl<T>,
@@ -156,16 +159,34 @@ pub struct STFT<T>
 }
 
 impl<T> STFT<T>
-    where T: FFTnum + FromF64 + num::Float
+where
+    T: FFTnum + FromF64 + num::Float,
 {
-    pub fn window_type_to_window_vec(window_type: WindowType,
-                                     window_size: usize)
-                                     -> Option<Vec<T>> {
+    pub fn window_type_to_window_vec(
+        window_type: WindowType,
+        window_size: usize,
+    ) -> Option<Vec<T>> {
         match window_type {
-            WindowType::Hanning => Some(apodize::hanning_iter(window_size).map(FromF64::from_f64).collect()),
-            WindowType::Hamming => Some(apodize::hamming_iter(window_size).map(FromF64::from_f64).collect()),
-            WindowType::Blackman => Some(apodize::blackman_iter(window_size).map(FromF64::from_f64).collect()),
-            WindowType::Nuttall => Some(apodize::nuttall_iter(window_size).map(FromF64::from_f64).collect()),
+            WindowType::Hanning => Some(
+                apodize::hanning_iter(window_size)
+                    .map(FromF64::from_f64)
+                    .collect(),
+            ),
+            WindowType::Hamming => Some(
+                apodize::hamming_iter(window_size)
+                    .map(FromF64::from_f64)
+                    .collect(),
+            ),
+            WindowType::Blackman => Some(
+                apodize::blackman_iter(window_size)
+                    .map(FromF64::from_f64)
+                    .collect(),
+            ),
+            WindowType::Nuttall => Some(
+                apodize::nuttall_iter(window_size)
+                    .map(FromF64::from_f64)
+                    .collect(),
+            ),
             WindowType::None => None,
         }
     }
@@ -176,10 +197,11 @@ impl<T> STFT<T>
     }
 
     // TODO this should ideally take an iterator and not a vec
-    pub fn new_with_window_vec(window: Option<Vec<T>>,
-                                  window_size: usize,
-                                  step_size: usize)
-                                  -> Self {
+    pub fn new_with_window_vec(
+        window: Option<Vec<T>>,
+        window_size: usize,
+        step_size: usize,
+    ) -> Self {
         // TODO more assertions:
         // window_size is power of two
         // step_size > 0
@@ -192,15 +214,13 @@ impl<T> STFT<T>
             fft: planner.plan_fft(window_size),
             sample_ring: SliceRingImpl::new(),
             window: window,
-            real_input: std::iter::repeat(T::zero())
-                            .take(window_size)
-                            .collect(),
+            real_input: std::iter::repeat(T::zero()).take(window_size).collect(),
             complex_input: std::iter::repeat(Complex::<T>::zero())
-                               .take(window_size)
-                               .collect(),
+                .take(window_size)
+                .collect(),
             complex_output: std::iter::repeat(Complex::<T>::zero())
-                                .take(window_size)
-                                .collect(),
+                .take(window_size)
+                .collect(),
         }
     }
 
@@ -242,7 +262,8 @@ impl<T> STFT<T>
         }
 
         // compute fft
-        self.fft.process(&mut self.complex_input, &mut self.complex_output);
+        self.fft
+            .process(&mut self.complex_input, &mut self.complex_output);
     }
 
     /// # Panics
@@ -294,9 +315,13 @@ pub trait FromF64 {
 }
 
 impl FromF64 for f64 {
-    fn from_f64(n: f64) -> Self { n }
+    fn from_f64(n: f64) -> Self {
+        n
+    }
 }
 
 impl FromF64 for f32 {
-    fn from_f64(n: f64) -> Self { n as f32 }
+    fn from_f64(n: f64) -> Self {
+        n as f32
+    }
 }
