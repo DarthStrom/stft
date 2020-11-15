@@ -8,32 +8,32 @@ on streaming data.
 ```
 use stft::{STFT, WindowType};
 
-// let's generate ten seconds of fake audio
+// Generate ten seconds of fake audio
 let sample_rate: usize = 44100;
 let seconds: usize = 10;
 let sample_count = sample_rate * seconds;
 let all_samples = (0..sample_count).map(|x| x as f64).collect::<Vec<f64>>();
 
-// let's initialize our short-time fourier transform
+// Initialize the short-time fourier transform
 let window_type: WindowType = WindowType::Hanning;
 let window_size: usize = 1024;
 let step_size: usize = 512;
 let mut stft = STFT::new(window_type, window_size, step_size);
 
-// we need a buffer to hold a computed column of the spectrogram
+// We need a buffer to hold a computed column of the spectrogram
 let mut spectrogram_column: Vec<f64> =
     std::iter::repeat(0.).take(stft.output_size()).collect();
 
-// iterate over all the samples in chunks of 3000 samples.
-// in a real program you would probably read from something instead.
+// Iterate over all the samples in chunks of 3000 samples.
+// In a real program you would probably read from a stream instead.
 for some_samples in (&all_samples[..]).chunks(3000) {
-    // append the samples to the internal ringbuffer of the stft
+    // Append the samples to the internal ringbuffer of the stft
     stft.append_samples(some_samples);
 
-    // as long as there remain window_size samples in the internal
+    // Loop as long as there remain window_size samples in the internal
     // ringbuffer of the stft
     while stft.contains_enough_to_compute() {
-        // compute one column of the stft by
+        // Compute one column of the stft by
         // taking the first window_size samples of the internal ringbuffer,
         // multiplying them with the window,
         // computing the fast fourier transform,
@@ -42,10 +42,10 @@ for some_samples in (&all_samples[..]).chunks(3000) {
         // taking the log10
         stft.compute_column(&mut spectrogram_column[..]);
 
-        // here's where you would do something with the
+        // Here's where you would do something with the
         // spectrogram_column...
 
-        // drop step_size samples from the internal ringbuffer of the stft
+        // Drop step_size samples from the internal ringbuffer of the stft
         // making a step of size step_size
         stft.move_to_next_column();
     }
@@ -59,77 +59,11 @@ assert!(!stft.is_empty())
 use std::str::FromStr;
 use std::sync::Arc;
 
-use strider::{SliceRing, SliceRingImpl};
-
 use rustfft::num_complex::Complex;
 use rustfft::num_traits::{Float, Signed, Zero};
 use rustfft::{FFTnum, FFTplanner, FFT};
 
-/// returns `0` if `log10(value).is_negative()`.
-/// otherwise returns `log10(value)`.
-/// `log10` turns values in domain `0..1` into values
-/// in range `-inf..0`.
-/// `log10_positive` turns values in domain `0..1` into `0`.
-/// this sets very small values to zero which may not be
-/// what you want depending on your application.
-#[inline]
-fn log10_positive<T: Float + Signed + Zero>(value: T) -> T {
-    let log = value.log10();
-    if log.is_negative() {
-        T::zero()
-    } else {
-        log
-    }
-}
-
-/// the type of apodization window to use
-#[derive(Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Debug, Hash)]
-pub enum WindowType {
-    Hanning,
-    Hamming,
-    Blackman,
-    Nuttall,
-    None,
-}
-
-impl FromStr for WindowType {
-    type Err = &'static str;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let lower = s.to_lowercase();
-        match &lower[..] {
-            "hanning" => Ok(WindowType::Hanning),
-            "hann" => Ok(WindowType::Hanning),
-            "hamming" => Ok(WindowType::Hamming),
-            "blackman" => Ok(WindowType::Blackman),
-            "nuttall" => Ok(WindowType::Nuttall),
-            "none" => Ok(WindowType::None),
-            _ => Err("no match"),
-        }
-    }
-}
-
-// this also implements ToString::to_string
-impl std::fmt::Display for WindowType {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(formatter, "{:?}", self)
-    }
-}
-
-// TODO write a macro that does this automatically for any enum
-static WINDOW_TYPES: [WindowType; 5] = [
-    WindowType::Hanning,
-    WindowType::Hamming,
-    WindowType::Blackman,
-    WindowType::Nuttall,
-    WindowType::None,
-];
-
-impl WindowType {
-    pub fn values() -> [WindowType; 5] {
-        WINDOW_TYPES
-    }
-}
+use strider::{SliceRing, SliceRingImpl};
 
 pub struct STFT<T>
 where
@@ -139,7 +73,6 @@ where
     pub step_size: usize,
     pub fft: Arc<dyn FFT<T>>,
     pub window: Option<Vec<T>>,
-    /// internal ringbuffer used to store samples
     pub sample_ring: SliceRingImpl<T>,
     pub real_input: Vec<T>,
     pub complex_input: Vec<Complex<T>>,
@@ -212,12 +145,10 @@ where
         }
     }
 
-    #[inline]
     pub fn output_size(&self) -> usize {
         self.window_size / 2
     }
 
-    #[inline]
     pub fn len(&self) -> usize {
         self.sample_ring.len()
     }
@@ -230,7 +161,6 @@ where
         self.sample_ring.push_many_back(input);
     }
 
-    #[inline]
     pub fn contains_enough_to_compute(&self) -> bool {
         self.window_size <= self.sample_ring.len()
     }
@@ -238,26 +168,27 @@ where
     pub fn compute_into_complex_output(&mut self) {
         assert!(self.contains_enough_to_compute());
 
-        // read into real_input
+        // Read into real_input
         self.sample_ring.read_many_front(&mut self.real_input[..]);
 
-        // multiply real_input with window
+        // Multiply real_input with window
         if let Some(ref window) = self.window {
             for (dst, src) in self.real_input.iter_mut().zip(window.iter()) {
                 *dst = *dst * *src;
             }
         }
 
-        // copy windowed real_input as real parts into complex_input
+        // Copy windowed real_input as real parts into complex_input
         for (dst, src) in self.complex_input.iter_mut().zip(self.real_input.iter()) {
             dst.re = *src;
         }
 
-        // compute fft
+        // Compute fft
         self.fft
             .process(&mut self.complex_input, &mut self.complex_output);
     }
 
+    // TODO: use `Result`s instead of panics
     /// # Panics
     /// panics unless `self.output_size() == output.len()`
     pub fn compute_complex_column(&mut self, output: &mut [Complex<T>]) {
@@ -282,7 +213,7 @@ where
         }
     }
 
-    /// computes a column of the spectrogram
+    /// Computes a column of the spectrogram
     /// # Panics
     /// panics unless `self.output_size() == output.len()`
     pub fn compute_column(&mut self, output: &mut [T]) {
@@ -295,8 +226,8 @@ where
         }
     }
 
-    /// make a step
-    /// drops `self.step_size` samples from the internal buffer `self.sample_ring`.
+    /// Make a step
+    /// Drops `self.step_size` samples from the internal buffer `self.sample_ring`.
     pub fn move_to_next_column(&mut self) {
         self.sample_ring.drop_many_front(self.step_size);
     }
@@ -315,6 +246,55 @@ impl FromF64 for f64 {
 impl FromF64 for f32 {
     fn from_f64(n: f64) -> Self {
         n as f32
+    }
+}
+
+/// The type of apodization window to use
+#[derive(Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Debug, Hash)]
+pub enum WindowType {
+    Hanning,
+    Hamming,
+    Blackman,
+    Nuttall,
+    None,
+}
+
+impl FromStr for WindowType {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let lower = s.to_lowercase();
+        match &lower[..] {
+            "hanning" => Ok(WindowType::Hanning),
+            "hann" => Ok(WindowType::Hanning),
+            "hamming" => Ok(WindowType::Hamming),
+            "blackman" => Ok(WindowType::Blackman),
+            "nuttall" => Ok(WindowType::Nuttall),
+            "none" => Ok(WindowType::None),
+            _ => Err("no match"),
+        }
+    }
+}
+
+impl std::fmt::Display for WindowType {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(formatter, "{:?}", self)
+    }
+}
+
+/// Returns `0` if `log10(value).is_negative()`,
+/// otherwise returns `log10(value)`.
+/// `log10` turns values in domain `0..1` into values
+/// in range `-inf..0`.
+/// `log10_positive` turns values in domain `0..1` into `0`.
+/// This sets very small values to zero which may not be
+/// what you want depending on your application.
+fn log10_positive<T: Float + Signed + Zero>(value: T) -> T {
+    let log = value.log10();
+    if log.is_negative() {
+        T::zero()
+    } else {
+        log
     }
 }
 
@@ -342,17 +322,6 @@ mod tests {
     #[test]
     fn test_window_type_to_string() {
         assert_eq!(WindowType::Hanning.to_string(), "Hanning");
-    }
-
-    #[test]
-    fn test_window_types_to_strings() {
-        assert_eq!(
-            vec!["Hanning", "Hamming", "Blackman", "Nuttall", "None"],
-            WindowType::values()
-                .iter()
-                .map(|x| x.to_string())
-                .collect::<Vec<String>>()
-        );
     }
 
     #[test]
