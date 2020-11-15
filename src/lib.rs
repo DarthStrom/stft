@@ -83,35 +83,6 @@ impl<T> STFT<T>
 where
     T: FFTnum + FromF64 + Float,
 {
-    pub fn window_type_to_window_vec(
-        window_type: WindowType,
-        window_size: usize,
-    ) -> Option<Vec<T>> {
-        match window_type {
-            WindowType::Hanning => Some(
-                apodize::hanning_iter(window_size)
-                    .map(FromF64::from_f64)
-                    .collect(),
-            ),
-            WindowType::Hamming => Some(
-                apodize::hamming_iter(window_size)
-                    .map(FromF64::from_f64)
-                    .collect(),
-            ),
-            WindowType::Blackman => Some(
-                apodize::blackman_iter(window_size)
-                    .map(FromF64::from_f64)
-                    .collect(),
-            ),
-            WindowType::Nuttall => Some(
-                apodize::nuttall_iter(window_size)
-                    .map(FromF64::from_f64)
-                    .collect(),
-            ),
-            WindowType::None => None,
-        }
-    }
-
     pub fn new(window_type: WindowType, window_size: usize, step_size: usize) -> Self {
         let window = Self::window_type_to_window_vec(window_type, window_size);
         Self::new_with_window_vec(window, window_size, step_size)
@@ -142,6 +113,35 @@ where
             complex_output: std::iter::repeat(Complex::<T>::zero())
                 .take(window_size)
                 .collect(),
+        }
+    }
+
+    pub fn window_type_to_window_vec(
+        window_type: WindowType,
+        window_size: usize,
+    ) -> Option<Vec<T>> {
+        match window_type {
+            WindowType::Hanning => Some(
+                apodize::hanning_iter(window_size)
+                    .map(FromF64::from_f64)
+                    .collect(),
+            ),
+            WindowType::Hamming => Some(
+                apodize::hamming_iter(window_size)
+                    .map(FromF64::from_f64)
+                    .collect(),
+            ),
+            WindowType::Blackman => Some(
+                apodize::blackman_iter(window_size)
+                    .map(FromF64::from_f64)
+                    .collect(),
+            ),
+            WindowType::Nuttall => Some(
+                apodize::nuttall_iter(window_size)
+                    .map(FromF64::from_f64)
+                    .collect(),
+            ),
+            WindowType::None => None,
         }
     }
 
