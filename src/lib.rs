@@ -62,16 +62,12 @@ fn main() {
 use std::str::FromStr;
 use std::sync::Arc;
 
-extern crate num;
-use num::complex::Complex;
-use num::traits::{Float, Signed, Zero};
-
-extern crate apodize;
-
 extern crate strider;
 use strider::{SliceRing, SliceRingImpl};
 
 extern crate rustfft;
+use rustfft::num_complex::Complex;
+use rustfft::num_traits::{Float, Signed, Zero};
 use rustfft::{FFTnum, FFTplanner, FFT};
 
 /// returns `0` if `log10(value).is_negative()`.
@@ -145,7 +141,7 @@ impl WindowType {
 
 pub struct STFT<T>
 where
-    T: FFTnum + FromF64 + num::Float,
+    T: FFTnum + FromF64 + Float,
 {
     pub window_size: usize,
     pub step_size: usize,
@@ -160,7 +156,7 @@ where
 
 impl<T> STFT<T>
 where
-    T: FFTnum + FromF64 + num::Float,
+    T: FFTnum + FromF64 + Float,
 {
     pub fn window_type_to_window_vec(
         window_type: WindowType,
