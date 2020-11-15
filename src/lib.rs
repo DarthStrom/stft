@@ -88,12 +88,72 @@ where
         Self::new_with_window_vec(window, window_size, step_size)
     }
 
+    pub fn output_size(&self) -> usize {
+        self.window_size / 2
+    }
+
+    pub fn len(&self) -> usize {
+        self.sample_ring.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    pub fn append_samples(&mut self, input: &[T]) {
+        self.sample_ring.push_many_back(input);
+    }
+
+    pub fn contains_enough_to_compute(&self) -> bool {
+        self.window_size <= self.sample_ring.len()
+    }
+
+    // TODO: use `Result`s instead of panics
+    /// Computes a column of the spectrogram
+    /// # Panics
+    /// panics unless `self.output_size() == output.len()`
+    pub fn compute_column(&mut self, output: &mut [T]) {
+        assert_eq!(self.output_size(), output.len());
+
+        self.compute_into_complex_output();
+
+        for (dst, src) in output.iter_mut().zip(self.complex_output.iter()) {
+            *dst = log10_positive(src.norm());
+        }
+    }
+
+    /// # Panics
+    /// panics unless `self.output_size() == output.len()`
+    pub fn compute_complex_column(&mut self, output: &mut [Complex<T>]) {
+        assert_eq!(self.output_size(), output.len());
+
+        self.compute_into_complex_output();
+
+        for (dst, src) in output.iter_mut().zip(self.complex_output.iter()) {
+            *dst = *src;
+        }
+    }
+
+    /// # Panics
+    /// panics unless `self.output_size() == output.len()`
+    pub fn compute_magnitude_column(&mut self, output: &mut [T]) {
+        assert_eq!(self.output_size(), output.len());
+
+        self.compute_into_complex_output();
+
+        for (dst, src) in output.iter_mut().zip(self.complex_output.iter()) {
+            *dst = src.norm();
+        }
+    }
+
+    /// Make a step
+    /// Drops `self.step_size` samples from the internal buffer `self.sample_ring`.
+    pub fn move_to_next_column(&mut self) {
+        self.sample_ring.drop_many_front(self.step_size);
+    }
+
     // TODO this should ideally take an iterator and not a vec
-    pub fn new_with_window_vec(
-        window: Option<Vec<T>>,
-        window_size: usize,
-        step_size: usize,
-    ) -> Self {
+    fn new_with_window_vec(window: Option<Vec<T>>, window_size: usize, step_size: usize) -> Self {
         // TODO more assertions:
         // window_size is power of two
         // step_size > 0
@@ -116,10 +176,7 @@ where
         }
     }
 
-    pub fn window_type_to_window_vec(
-        window_type: WindowType,
-        window_size: usize,
-    ) -> Option<Vec<T>> {
+    fn window_type_to_window_vec(window_type: WindowType, window_size: usize) -> Option<Vec<T>> {
         match window_type {
             WindowType::Hanning => Some(
                 apodize::hanning_iter(window_size)
@@ -145,27 +202,7 @@ where
         }
     }
 
-    pub fn output_size(&self) -> usize {
-        self.window_size / 2
-    }
-
-    pub fn len(&self) -> usize {
-        self.sample_ring.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
-    pub fn append_samples(&mut self, input: &[T]) {
-        self.sample_ring.push_many_back(input);
-    }
-
-    pub fn contains_enough_to_compute(&self) -> bool {
-        self.window_size <= self.sample_ring.len()
-    }
-
-    pub fn compute_into_complex_output(&mut self) {
+    fn compute_into_complex_output(&mut self) {
         assert!(self.contains_enough_to_compute());
 
         // Read into real_input
@@ -186,50 +223,6 @@ where
         // Compute fft
         self.fft
             .process(&mut self.complex_input, &mut self.complex_output);
-    }
-
-    // TODO: use `Result`s instead of panics
-    /// # Panics
-    /// panics unless `self.output_size() == output.len()`
-    pub fn compute_complex_column(&mut self, output: &mut [Complex<T>]) {
-        assert_eq!(self.output_size(), output.len());
-
-        self.compute_into_complex_output();
-
-        for (dst, src) in output.iter_mut().zip(self.complex_output.iter()) {
-            *dst = *src;
-        }
-    }
-
-    /// # Panics
-    /// panics unless `self.output_size() == output.len()`
-    pub fn compute_magnitude_column(&mut self, output: &mut [T]) {
-        assert_eq!(self.output_size(), output.len());
-
-        self.compute_into_complex_output();
-
-        for (dst, src) in output.iter_mut().zip(self.complex_output.iter()) {
-            *dst = src.norm();
-        }
-    }
-
-    /// Computes a column of the spectrogram
-    /// # Panics
-    /// panics unless `self.output_size() == output.len()`
-    pub fn compute_column(&mut self, output: &mut [T]) {
-        assert_eq!(self.output_size(), output.len());
-
-        self.compute_into_complex_output();
-
-        for (dst, src) in output.iter_mut().zip(self.complex_output.iter()) {
-            *dst = log10_positive(src.norm());
-        }
-    }
-
-    /// Make a step
-    /// Drops `self.step_size` samples from the internal buffer `self.sample_ring`.
-    pub fn move_to_next_column(&mut self) {
-        self.sample_ring.drop_many_front(self.step_size);
     }
 }
 
