@@ -1,14 +1,11 @@
 [package]
-authors = ["Maximilian Krüger <kruemaxi@gmail.com>"]
-description = "computes the short-time fourier transform on streaming data"
-documentation = "https://snd.github.io/stft/stft/index.html"
-homepage = "https://github.com/snd/stft"
+authors = ["Maximilian Krüger <kruemaxi@gmail.com>", "Jason Duffy <jasonsduffy@gmail.com"]
+description = "Computes the short-time fourier transform on streaming data"
 keywords = ["dsp", "fft", "stream", "data", "fourier"]
-license = "MIT OR Apache-2.0"
+license = "MIT"
 name = "stft"
 readme = "README.md"
-repository = "https://github.com/snd/stft.git"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2018"
 
 [dependencies]

@@ -6,7 +6,7 @@ on streaming data.
 ## example
 
 ```
-use stft::{STFT, WindowType};
+use stft::STFT;
 
 // Generate ten seconds of fake audio
 let sample_rate: usize = 44100;
@@ -15,14 +15,9 @@ let sample_count = sample_rate * seconds;
 let all_samples = (0..sample_count).map(|x| x as f64).collect::<Vec<f64>>();
 
 // Initialize the short-time fourier transform
-let window_type: WindowType = WindowType::Hanning;
 let window_size: usize = 1024;
 let step_size: usize = 512;
-let mut stft = STFT::new(window_type, window_size, step_size);
-
-// We need a buffer to hold a computed column of the spectrogram
-let mut spectrogram_column: Vec<f64> =
-    std::iter::repeat(0.).take(stft.output_size()).collect();
+let mut stft = STFT::new(window_size, step_size).unwrap();
 
 // Iterate over all the samples in chunks of 3000 samples.
 // In a real program you would probably read from a stream instead.
@@ -40,7 +35,7 @@ for some_samples in (&all_samples[..]).chunks(3000) {
         // taking half of the symetric complex outputs,
         // computing the norm of the complex outputs and
         // taking the log10
-        stft.compute_column(&mut spectrogram_column[..]);
+        let spectrogram_column = stft.compute_column();
 
         // Here's where you would do something with the
         // spectrogram_column...
@@ -56,7 +51,6 @@ assert!(!stft.is_empty())
 ```
 */
 
-use std::str::FromStr;
 use std::sync::Arc;
 
 use rustfft::num_complex::Complex;
@@ -83,9 +77,53 @@ impl<T> STFT<T>
 where
     T: FFTnum + FromF64 + Float,
 {
-    pub fn new(window_type: WindowType, window_size: usize, step_size: usize) -> Self {
-        let window = Self::window_type_to_window_vec(window_type, window_size);
+    pub fn new(window_size: usize, step_size: usize) -> Result<Self, String> {
+        // TODO: remove dependency on apodize and add additional window types
+        let window = apodize::hanning_iter(window_size)
+            .map(FromF64::from_f64)
+            .collect();
+
         Self::with_window_vec(window, window_size, step_size)
+    }
+
+    pub fn hann(window_size: usize, step_size: usize) -> Result<Self, String> {
+        Self::new(window_size, step_size)
+    }
+
+    pub fn hamming(window_size: usize, step_size: usize) -> Result<Self, String> {
+        let window = apodize::hamming_iter(window_size)
+            .map(FromF64::from_f64)
+            .collect();
+
+        Self::with_window_vec(window, window_size, step_size)
+    }
+
+    pub fn blackman(window_size: usize, step_size: usize) -> Result<Self, String> {
+        let window = apodize::blackman_iter(window_size)
+            .map(FromF64::from_f64)
+            .collect();
+
+        Self::with_window_vec(window, window_size, step_size)
+    }
+
+    pub fn nuttall(window_size: usize, step_size: usize) -> Result<Self, String> {
+        let window = apodize::nuttall_iter(window_size)
+            .map(FromF64::from_f64)
+            .collect();
+
+        Self::with_window_vec(window, window_size, step_size)
+    }
+
+    pub fn rectangular(window_size: usize, step_size: usize) -> Result<Self, String> {
+        Self::with_window_vec(vec![], window_size, step_size)
+    }
+
+    pub fn boxcar(window_size: usize, step_size: usize) -> Result<Self, String> {
+        Self::rectangular(window_size, step_size)
+    }
+
+    pub fn no_window(window_size: usize, step_size: usize) -> Result<Self, String> {
+        Self::rectangular(window_size, step_size)
     }
 
     pub fn output_size(&self) -> usize {
@@ -108,42 +146,27 @@ where
         self.window_size <= self.sample_ring.len()
     }
 
-    // TODO: use `Result`s instead of panics
     /// Computes a column of the spectrogram
-    /// # Panics
-    /// panics unless `self.output_size() == output.len()`
-    pub fn compute_column(&mut self, output: &mut [T]) {
-        assert_eq!(self.output_size(), output.len());
+    pub fn compute_column(&mut self) -> Result<Vec<T>, String> {
+        self.compute_into_complex_output()?;
 
-        self.compute_into_complex_output();
-
-        for (dst, src) in output.iter_mut().zip(self.complex_output.iter()) {
-            *dst = log10_positive(src.norm());
-        }
+        Ok(self
+            .complex_output
+            .iter()
+            .map(|x| log10_positive(x.norm()))
+            .collect())
     }
 
-    /// # Panics
-    /// panics unless `self.output_size() == output.len()`
-    pub fn compute_complex_column(&mut self, output: &mut [Complex<T>]) {
-        assert_eq!(self.output_size(), output.len());
+    pub fn compute_complex_column(&mut self) -> Result<Vec<Complex<T>>, String> {
+        self.compute_into_complex_output()?;
 
-        self.compute_into_complex_output();
-
-        for (dst, src) in output.iter_mut().zip(self.complex_output.iter()) {
-            *dst = *src;
-        }
+        Ok(self.complex_output.clone())
     }
 
-    /// # Panics
-    /// panics unless `self.output_size() == output.len()`
-    pub fn compute_magnitude_column(&mut self, output: &mut [T]) {
-        assert_eq!(self.output_size(), output.len());
+    pub fn compute_magnitude_column(&mut self) -> Result<Vec<T>, String> {
+        self.compute_into_complex_output()?;
 
-        self.compute_into_complex_output();
-
-        for (dst, src) in output.iter_mut().zip(self.complex_output.iter()) {
-            *dst = src.norm();
-        }
+        Ok(self.complex_output.iter().map(|x| x.norm()).collect())
     }
 
     /// Make a step
@@ -153,14 +176,24 @@ where
     }
 
     // TODO this should ideally take an iterator and not a vec
-    fn with_window_vec(window: Vec<T>, window_size: usize, step_size: usize) -> Self {
-        // TODO more assertions:
-        // window_size is power of two
-        // step_size > 0
-        assert!(step_size <= window_size);
+    fn with_window_vec(
+        window: Vec<T>,
+        window_size: usize,
+        step_size: usize,
+    ) -> Result<Self, String> {
+        if !is_power_of_two(window_size) {
+            return Err("window size must be a power of two".to_string());
+        }
+        if step_size <= 0 {
+            return Err("step size must be greater than zero".to_string());
+        }
+        if step_size > window_size {
+            return Err("step size must be smaller than or equal to the window size".to_string());
+        }
+
         let inverse = false;
         let mut planner = FFTplanner::new(inverse);
-        STFT {
+        Ok(STFT {
             window_size,
             step_size,
             fft: planner.plan_fft(window_size),
@@ -173,29 +206,13 @@ where
             complex_output: std::iter::repeat(Complex::<T>::zero())
                 .take(window_size)
                 .collect(),
-        }
+        })
     }
 
-    fn window_type_to_window_vec(window_type: WindowType, window_size: usize) -> Vec<T> {
-        match window_type {
-            WindowType::Hanning => apodize::hanning_iter(window_size)
-                .map(FromF64::from_f64)
-                .collect(),
-            WindowType::Hamming => apodize::hamming_iter(window_size)
-                .map(FromF64::from_f64)
-                .collect(),
-            WindowType::Blackman => apodize::blackman_iter(window_size)
-                .map(FromF64::from_f64)
-                .collect(),
-            WindowType::Nuttall => apodize::nuttall_iter(window_size)
-                .map(FromF64::from_f64)
-                .collect(),
-            WindowType::None => vec![],
+    fn compute_into_complex_output(&mut self) -> Result<(), String> {
+        if !self.contains_enough_to_compute() {
+            return Err("not enough data to compute".to_string());
         }
-    }
-
-    fn compute_into_complex_output(&mut self) {
-        assert!(self.contains_enough_to_compute());
 
         // Read into real_input
         self.sample_ring.read_many_front(&mut self.real_input[..]);
@@ -213,6 +230,7 @@ where
         // Compute fft
         self.fft
             .process(&mut self.complex_input, &mut self.complex_output);
+        Ok(())
     }
 }
 
@@ -232,37 +250,8 @@ impl FromF64 for f32 {
     }
 }
 
-/// The type of apodization window to use
-#[derive(Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Debug, Hash)]
-pub enum WindowType {
-    Hanning,
-    Hamming,
-    Blackman,
-    Nuttall,
-    None,
-}
-
-impl FromStr for WindowType {
-    type Err = &'static str;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let lower = s.to_lowercase();
-        match &lower[..] {
-            "hanning" => Ok(WindowType::Hanning),
-            "hann" => Ok(WindowType::Hanning),
-            "hamming" => Ok(WindowType::Hamming),
-            "blackman" => Ok(WindowType::Blackman),
-            "nuttall" => Ok(WindowType::Nuttall),
-            "none" => Ok(WindowType::None),
-            _ => Err("no match"),
-        }
-    }
-}
-
-impl std::fmt::Display for WindowType {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(formatter, "{:?}", self)
-    }
+fn is_power_of_two(n: usize) -> bool {
+    n & (n - 1) == 0
 }
 
 /// Returns `0` if `log10(value).is_negative()`,
@@ -286,28 +275,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_window_type_from_string() {
-        assert_eq!(
-            WindowType::from_str("Hanning").unwrap(),
-            WindowType::Hanning
-        );
-        assert_eq!(
-            WindowType::from_str("hanning").unwrap(),
-            WindowType::Hanning
-        );
-        assert_eq!(WindowType::from_str("hann").unwrap(), WindowType::Hanning);
-        assert_eq!(
-            WindowType::from_str("blackman").unwrap(),
-            WindowType::Blackman
-        );
-    }
-
-    #[test]
-    fn test_window_type_to_string() {
-        assert_eq!(WindowType::Hanning.to_string(), "Hanning");
-    }
-
-    #[test]
     fn test_log10_positive() {
         assert_eq!(log10_positive(-1.), 0.);
         assert_eq!(log10_positive(0.), 0.);
@@ -319,22 +286,21 @@ mod tests {
 
     #[test]
     fn test_stft() {
-        let mut stft = STFT::new(WindowType::Hanning, 8, 4);
+        let mut stft = STFT::new(8, 4).unwrap();
         assert!(!stft.contains_enough_to_compute());
         assert_eq!(stft.output_size(), 4);
         assert_eq!(stft.len(), 0);
-        stft.append_samples(&vec![500., 0., 100.][..]);
+        stft.append_samples(&[500., 0., 100.]);
         assert_eq!(stft.len(), 3);
         assert!(!stft.contains_enough_to_compute());
-        stft.append_samples(&vec![500., 0., 100., 0.][..]);
+        stft.append_samples(&[500., 0., 100., 0.]);
         assert_eq!(stft.len(), 7);
         assert!(!stft.contains_enough_to_compute());
 
-        stft.append_samples(&vec![500.][..]);
+        stft.append_samples(&[500.]);
         assert!(stft.contains_enough_to_compute());
 
-        let mut output: Vec<f64> = vec![0.; 4];
-        stft.compute_column(&mut output[..]);
+        let output = stft.compute_column();
         println!("{:?}", output);
     }
 }
